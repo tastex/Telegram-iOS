@@ -3,12 +3,13 @@ import UIKit
 import Display
 import AsyncDisplayKit
 import SwiftSignalKit
+import ChatTitleActivityNode
 
 private let compactNameFont = Font.regular(28.0)
 private let regularNameFont = Font.regular(36.0)
 
-private let compactStatusFont = Font.regular(18.0)
-private let regularStatusFont = Font.regular(18.0)
+private let compactStatusFont = Font.regular(16.0)
+private let regularStatusFont = Font.regular(16.0)
 
 enum CallControllerStatusValue: Equatable {
     case text(string: String, displayLogo: Bool)
@@ -18,6 +19,8 @@ enum CallControllerStatusValue: Equatable {
         switch lhs {
             case let .text(text, displayLogo):
                 if case .text(text, displayLogo) = rhs {
+                    return true
+                } else if case .text(text + "...", displayLogo) = rhs {
                     return true
                 } else {
                     return false
@@ -42,6 +45,8 @@ final class CallControllerStatusNode: ASDisplayNode {
     
     private let titleActivateAreaNode: AccessibilityAreaNode
     private let statusActivateAreaNode: AccessibilityAreaNode
+    
+    private let activityNode: ChatTitleActivityNode
     
     var title: String = ""
     var subtitle: String = ""
@@ -127,6 +132,8 @@ final class CallControllerStatusNode: ASDisplayNode {
         self.statusActivateAreaNode = AccessibilityAreaNode()
         self.statusActivateAreaNode.accessibilityTraits = [.staticText, .updatesFrequently]
         
+        self.activityNode = ChatTitleActivityNode()
+        
         super.init()
         
         self.isUserInteractionEnabled = false
@@ -136,6 +143,7 @@ final class CallControllerStatusNode: ASDisplayNode {
         self.statusContainerNode.addSubnode(self.statusNode)
         self.statusContainerNode.addSubnode(self.receptionNode)
         self.statusContainerNode.addSubnode(self.logoNode)
+        self.statusContainerNode.addSubnode(self.activityNode)
         
         self.addSubnode(self.titleActivateAreaNode)
         self.addSubnode(self.statusActivateAreaNode)
@@ -156,7 +164,7 @@ final class CallControllerStatusNode: ASDisplayNode {
         
         let nameFont: UIFont
         let statusFont: UIFont
-        if constrainedWidth < 330.0 {
+        if constrainedWidth < 430.0 {
             nameFont = compactNameFont
             statusFont = compactStatusFont
         } else {
@@ -165,9 +173,10 @@ final class CallControllerStatusNode: ASDisplayNode {
         }
         
         var statusOffset: CGFloat = 0.0
-        let statusText: String
-        let statusMeasureText: String
+        var statusText: String
+        var statusMeasureText: String
         var statusDisplayLogo: Bool = false
+        var statusActivityAnimation: Bool = false
         switch self.status {
         case let .text(text, displayLogo):
             statusText = text
@@ -190,11 +199,18 @@ final class CallControllerStatusNode: ASDisplayNode {
             statusText = format(durationString, false)
             statusMeasureText = format(measureDurationString, true)
             if self.reception != nil {
-                statusOffset += 8.0
+                statusOffset += 13.0
             }
         }
         
-        let spacing: CGFloat = 1.0
+        if statusText.hasSuffix("...") {
+            statusText = statusText.replacingOccurrences(of: ".", with: "")
+            statusMeasureText = statusText
+            statusActivityAnimation = true
+            statusOffset += -14.0
+        }
+        
+        let spacing: CGFloat = -2.0
         let (titleLayout, titleApply) = TextNode.asyncLayout(self.titleNode)(TextNodeLayoutArguments(attributedString: NSAttributedString(string: self.title, font: nameFont, textColor: .white), backgroundColor: nil, maximumNumberOfLines: 1, truncationType: .end, constrainedSize: CGSize(width: constrainedWidth - 20.0, height: CGFloat.greatestFiniteMagnitude), alignment: .natural, cutout: nil, insets: UIEdgeInsets(top: 2.0, left: 2.0, bottom: 2.0, right: 2.0)))
         let (statusMeasureLayout, statusMeasureApply) = TextNode.asyncLayout(self.statusMeasureNode)(TextNodeLayoutArguments(attributedString: NSAttributedString(string: statusMeasureText, font: statusFont, textColor: .white), backgroundColor: nil, maximumNumberOfLines: 0, truncationType: .end, constrainedSize: CGSize(width: constrainedWidth - 20.0, height: CGFloat.greatestFiniteMagnitude), alignment: .center, cutout: nil, insets: UIEdgeInsets(top: 2.0, left: 2.0, bottom: 2.0, right: 2.0)))
         let (statusLayout, statusApply) = TextNode.asyncLayout(self.statusNode)(TextNodeLayoutArguments(attributedString: NSAttributedString(string: statusText, font: statusFont, textColor: .white), backgroundColor: nil, maximumNumberOfLines: 0, truncationType: .end, constrainedSize: CGSize(width: constrainedWidth - 20.0, height: CGFloat.greatestFiniteMagnitude), alignment: .center, cutout: nil, insets: UIEdgeInsets(top: 2.0, left: 2.0, bottom: 2.0, right: 2.0)))
@@ -209,13 +225,41 @@ final class CallControllerStatusNode: ASDisplayNode {
         self.titleNode.frame = CGRect(origin: CGPoint(x: floor((constrainedWidth - titleLayout.size.width) / 2.0), y: 0.0), size: titleLayout.size)
         self.statusContainerNode.frame = CGRect(origin: CGPoint(x: 0.0, y: titleLayout.size.height + spacing), size: CGSize(width: constrainedWidth, height: statusLayout.size.height))
         self.statusNode.frame = CGRect(origin: CGPoint(x: floor((constrainedWidth - statusMeasureLayout.size.width) / 2.0) + statusOffset, y: 0.0), size: statusLayout.size)
-        self.receptionNode.frame = CGRect(origin: CGPoint(x: self.statusNode.frame.minX - receptionNodeSize.width, y: 9.0), size: receptionNodeSize)
+        self.receptionNode.frame = CGRect(origin: CGPoint(x: self.statusNode.frame.minX - receptionNodeSize.width, y: 2.0), size: receptionNodeSize)
         self.logoNode.isHidden = !statusDisplayLogo
         if let image = self.logoNode.image, let firstLineRect = statusMeasureLayout.linesRects().first {
             let firstLineOffset = floor((statusMeasureLayout.size.width - firstLineRect.width) / 2.0)
             self.logoNode.frame = CGRect(origin: CGPoint(x: self.statusNode.frame.minX + firstLineOffset - image.size.width - 7.0, y: 5.0), size: image.size)
         }
+        if statusActivityAnimation {
+            self.activityNode.isHidden = false
+            if self.activityNode.supernode == nil {
+                self.statusContainerNode.addSubnode(self.activityNode)
+            }
+            let _ = self.activityNode.transitionToState(.typingText(NSAttributedString(string: ""), .white), animation: .none)
+            let activitySize = self.activityNode.updateLayout(statusLayout.size, alignment: .center)
+            self.activityNode.frame = CGRect(origin: CGPoint(x: self.statusNode.frame.maxX + 15.0, y: 10.0), size: activitySize)
+        } else if self.activityNode.supernode != nil {
+            self.activityNode.isHidden = true
+            self.activityNode.removeFromSupernode()
+        }
         
+        print("statusActivityAnimation = \(statusActivityAnimation), statusText = \(statusText), status = \(self.status), statusOffset = \(statusOffset), statusNode.frame = \(self.statusNode.frame)")
+        print("floor((constrainedWidth - statusMeasureLayout.size.width) = \(floor((constrainedWidth - statusMeasureLayout.size.width))), constrainedWidth=\(constrainedWidth), statusMeasureLayout.size.width = \(statusMeasureLayout.size.width)")
+        
+        print("""
+                self.titleNode.frame
+                    x: \(self.titleNode.frame.origin.x)
+                    y: \(self.titleNode.frame.origin.y)
+                    width: \(self.titleNode.frame.size.width)
+                    height: \(self.titleNode.frame.size.height)
+                
+                titleNode.frame             = \(self.titleNode.frame)   minX = \(self.titleNode.frame.minX) maxX = \(self.titleNode.frame.maxX)
+                statusContainerNode.frame   = \(self.statusContainerNode.frame)   minX = \(self.statusContainerNode.frame.minX) maxX = \(self.statusContainerNode.frame.maxX)
+                statusNode.frame            = \(self.statusNode.frame)   minX = \(self.statusNode.frame.minX) maxX = \(self.statusNode.frame.maxX)
+                receptionNode.frame         = \(self.receptionNode.frame)   minX = \(self.receptionNode.frame.minX) maxX = \(self.receptionNode.frame.maxX)
+                logoNode.frame              = \(self.logoNode.frame)   minX = \(self.logoNode.frame.minX) maxX = \(self.logoNode.frame.maxX)
+                """)
         self.titleActivateAreaNode.frame = self.titleNode.frame
         self.statusActivateAreaNode.frame = self.statusContainerNode.frame
         
@@ -232,7 +276,7 @@ private final class CallControllerReceptionNodeParameters: NSObject {
     }
 }
 
-private let receptionNodeSize = CGSize(width: 24.0, height: 10.0)
+private let receptionNodeSize = CGSize(width: 21.0, height: 15.0)
 
 final class CallControllerReceptionNode : ASDisplayNode {
     var reception: Int32 = 4 {
@@ -246,6 +290,9 @@ final class CallControllerReceptionNode : ASDisplayNode {
         
         self.isOpaque = false
         self.isLayerBacked = true
+        if #available(iOS 13.0, *) {
+            self.layer.cornerCurve = .continuous
+        }
     }
     
     override func drawParameters(forAsyncLayer layer: _ASDisplayLayer) -> NSObjectProtocol? {
@@ -258,20 +305,17 @@ final class CallControllerReceptionNode : ASDisplayNode {
         
         if let parameters = parameters as? CallControllerReceptionNodeParameters{
             let width: CGFloat = 3.0
-            var spacing: CGFloat = 1.5
-            if UIScreenScale > 2 {
-                spacing = 4.0 / 3.0
-            }
+            let spacing: CGFloat = 2.0
             
             for i in 0 ..< 4 {
-                let height = 4.0 + 2.0 * CGFloat(i)
+                let height = width * CGFloat(i + 1)
                 let rect = CGRect(x: bounds.minX + CGFloat(i) * (width + spacing), y: receptionNodeSize.height - height, width: width, height: height)
                 
                 if i >= parameters.reception {
-                    context.setAlpha(0.4)
+                    context.setAlpha(0.3)
                 }
                 
-                let path = UIBezierPath(roundedRect: rect, cornerRadius: 0.5)
+                let path = UIBezierPath(roundedRect: rect, cornerRadius: 0.9)
                 context.addPath(path.cgPath)
                 context.fillPath()
             }

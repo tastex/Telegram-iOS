@@ -2697,6 +2697,22 @@ public func chatAvatarGalleryPhoto(account: Account, representations: [ImageRepr
     }
 }
 
+public func callAvatarPhoto(account: Account, peer: EnginePeer) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
+    return .single({ arguments in
+        guard let context = DrawingContext(size: arguments.drawingSize, clear: true) else {
+            return nil
+        }
+        context.withFlippedContext { c in
+            let colors = [UIColor(rgb: 0x466f92).cgColor, UIColor(rgb: 0x244f74).cgColor]
+            var locations: [CGFloat] = [1.0, 0.0]
+            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let gradient = CGGradient(colorsSpace: colorSpace, colors: colors as CFArray, locations: &locations)!
+            c.drawLinearGradient(gradient, start: CGPoint(), end: CGPoint(x: 0.0, y: arguments.drawingSize.height), options: CGGradientDrawingOptions())
+        }
+        return context
+    })
+}
+
 public func chatWebFileImage(account: Account, file: TelegramMediaWebFile) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
     return account.postbox.mediaBox.resourceData(file.resource)
     |> map { fullSizeData in

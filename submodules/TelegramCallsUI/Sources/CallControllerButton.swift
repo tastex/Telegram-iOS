@@ -44,6 +44,8 @@ final class CallControllerButtonItemNode: HighlightTrackingButtonNode {
             case headphones
             case accept
             case end
+            case endIncoming
+            case decline
             case cancel
             case share
             case screencast
@@ -281,6 +283,10 @@ final class CallControllerButtonItemNode: HighlightTrackingButtonNode {
                     image = generateTintedImage(image: UIImage(bundleImageName: "Call/CallAcceptButton"), color: imageColor)
                 case .end:
                     image = generateTintedImage(image: UIImage(bundleImageName: "Call/CallDeclineButton"), color: imageColor)
+                case .endIncoming:
+                    image = generateTintedImage(image: UIImage(bundleImageName: "Call/CallCancelButton"), color: imageColor)
+                case .decline:
+                    image = generateTintedImage(image: UIImage(bundleImageName: "Call/CallDeclineButtonIncoming"), color: imageColor)
                 case .cancel:
                     image = generateImage(CGSize(width: 28.0, height: 28.0), opaque: false, rotatedContext: { size, context in
                         let bounds = CGRect(origin: CGPoint(), size: size)
@@ -330,7 +336,9 @@ final class CallControllerButtonItemNode: HighlightTrackingButtonNode {
                 self.contentBackgroundNode.image = contentBackgroundImage
             }
             
-            if transition.isAnimated, let previousContent = previousContent, previousContent.image == .accept && content.image == .end {
+            if transition.isAnimated,
+                let previousContent = previousContent,
+                previousContent.image == .accept && (content.image == .end || content.image == .decline) {
                 let rotation = CGFloat.pi / 4.0 * 3.0
                 
                 if let snapshotView = self.contentNode.view.snapshotContentTree() {

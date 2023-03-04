@@ -209,6 +209,34 @@ private final class ContentNode: ASDisplayNode {
             transition.updateSublayerTransformScale(layer: audioLevelView.layer, scale: CGPoint(x: audioLevelScale, y: audioLevelScale), beginWithCurrentState: true)
         }
     }
+    
+    func updateAudioLevelWave(color: UIColor, backgroundColor: UIColor, value: Float) {
+        if self.audioLevelView == nil, value > 0.0 {
+            let blobFrame = self.unclippedNode.bounds.insetBy(dx: -36.0, dy: -36.0)
+            
+            let audioLevelView = VoiceBlobView(
+                frame: blobFrame,
+                maxLevel: 0.3,
+                smallBlobRange: (0, 0),
+                mediumBlobRange: (0.7, 0.8),
+                bigBlobRange: (0.8, 0.9)
+            )
+            
+            audioLevelView.setColor(color)
+            self.audioLevelView = audioLevelView
+            self.view.insertSubview(audioLevelView, at: 0)
+        }
+        
+        if let audioLevelView = self.audioLevelView {
+            audioLevelView.updateLevel(CGFloat(value) * 2.0)
+            
+            if value > 0.0 {
+                audioLevelView.startAnimating()
+            } else {
+                audioLevelView.stopAnimating(duration: 0.5)
+            }
+        }
+    }
 }
 
 public final class AnimatedAvatarSetNode: ASDisplayNode {
@@ -290,6 +318,16 @@ public final class AnimatedAvatarSetNode: ASDisplayNode {
                 itemNode.updateAudioLevel(color: color, backgroundColor: backgroundColor, value: value)
             } else {
                 itemNode.updateAudioLevel(color: color, backgroundColor: backgroundColor, value: 0.0)
+            }
+        }
+    }
+    
+    public func updateAudioLevelsWaves(color: UIColor, backgroundColor: UIColor, levels: [EnginePeer.Id: Float]) {
+        for (key, itemNode) in self.contentNodes {
+            if case let .peer(peerId) = key, let value = levels[peerId] {
+                itemNode.updateAudioLevelWave(color: color, backgroundColor: backgroundColor, value: value)
+            } else {
+                itemNode.updateAudioLevelWave(color: color, backgroundColor: backgroundColor, value: 0.0)
             }
         }
     }

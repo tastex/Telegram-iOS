@@ -17,6 +17,8 @@ import AlertUI
 import PresentationDataUtils
 import DeviceAccess
 import ContextUI
+import AvatarNode
+import AnimatedAvatarSetNode
 
 private func interpolateFrame(from fromValue: CGRect, to toValue: CGRect, t: CGFloat) -> CGRect {
     return CGRect(x: floorToScreenPixels(toValue.origin.x * t + fromValue.origin.x * (1.0 - t)), y: floorToScreenPixels(toValue.origin.y * t + fromValue.origin.y * (1.0 - t)), width: floorToScreenPixels(toValue.size.width * t + fromValue.size.width * (1.0 - t)), height: floorToScreenPixels(toValue.size.height * t + fromValue.size.height * (1.0 - t)))
@@ -373,6 +375,21 @@ final class CallControllerNode: ViewControllerTracingNode, CallControllerNodePro
     private let imageNode: TransformImageNode
     private let dimNode: ASImageNode
     
+    private let avatarsContext: AnimatedAvatarSetContext
+    private var avatarsContent: AnimatedAvatarSetContext.Content?
+    private let avatarsNode: AnimatedAvatarSetNode
+
+    private let audioLevelDisposable = MetaDisposable()
+    
+    var avatarAudioLevel: Float = 0.0 {
+        didSet {
+            if let peer = self.peer {
+                print("avatarAudioLevel = \(avatarAudioLevel)")
+                avatarsNode.updateAudioLevelsWaves(color: UIColor.white, backgroundColor: UIColor.white, levels: [EnginePeer(peer).id : avatarAudioLevel])
+            }
+        }
+    }
+    
     private var candidateIncomingVideoNodeValue: CallVideoNode?
     private var incomingVideoNodeValue: CallVideoNode?
     private var incomingVideoViewRequested: Bool = false
@@ -490,6 +507,9 @@ final class CallControllerNode: ViewControllerTracingNode, CallControllerNodePro
         self.dimNode.isUserInteractionEnabled = false
         self.dimNode.backgroundColor = UIColor(white: 0.0, alpha: 0.3)
         
+        self.avatarsContext = AnimatedAvatarSetContext()
+        self.avatarsNode = AnimatedAvatarSetNode()
+        
         self.backButtonArrowNode = ASImageNode()
         self.backButtonArrowNode.displayWithoutProcessing = true
         self.backButtonArrowNode.displaysAsynchronously = false
@@ -531,6 +551,7 @@ final class CallControllerNode: ViewControllerTracingNode, CallControllerNodePro
         }
         
         self.containerNode.addSubnode(self.imageNode)
+        self.containerNode.addSubnode(self.avatarsNode)
         self.containerNode.addSubnode(self.videoContainerNode)
         self.containerNode.addSubnode(self.dimNode)
         self.containerNode.addSubnode(self.statusNode)
@@ -752,6 +773,7 @@ final class CallControllerNode: ViewControllerTracingNode, CallControllerNodePro
         if let orientationDidChangeObserver = self.orientationDidChangeObserver {
             NotificationCenter.default.removeObserver(orientationDidChangeObserver)
         }
+        self.audioLevelDisposable.dispose()
     }
     
     func displayCameraTooltip() {
@@ -788,7 +810,12 @@ final class CallControllerNode: ViewControllerTracingNode, CallControllerNodePro
     func updatePeer(accountPeer: Peer, peer: Peer, hasOther: Bool) {
         if !arePeersEqual(self.peer, peer) {
             self.peer = peer
-            if let peerReference = PeerReference(peer), !peer.profileImageRepresentations.isEmpty {
+        
+            if callState?.state != .ringing {
+                self.imageNode.setSignal(callDefaultBackground())
+                self.avatarsContent = self.avatarsContext.update(peers: [EnginePeer(peer)], animated: false)
+                self.dimNode.isHidden = true
+            } else if let peerReference = PeerReference(peer), !peer.profileImageRepresentations.isEmpty {
                 let representations: [ImageRepresentationWithReference] = peer.profileImageRepresentations.map({ ImageRepresentationWithReference(representation: $0, reference: .avatar(peer: peerReference, resource: $0.resource)) })
                 self.imageNode.setSignal(chatAvatarGalleryPhoto(account: self.account, representations: representations, immediateThumbnailData: nil, autoFetchFullSize: true))
                 self.dimNode.isHidden = false
@@ -1120,6 +1147,12 @@ final class CallControllerNode: ViewControllerTracingNode, CallControllerNodePro
                     }
                 }
                 
+                if avatarsContent == nil, let peer = self.peer {
+                    self.imageNode.setSignal(callDefaultBackground())
+                    self.avatarsContent = self.avatarsContext.update(peers: [EnginePeer(peer)], animated: false)
+                    self.dimNode.isHidden = true                    
+                }
+                
                 statusValue = .timer({ value, measure in
                     if isReconnecting || (self.outgoingVideoViewRequested && value == "00:00" && !measure) {
                         return strings.Call_StatusConnecting
@@ -1130,6 +1163,14 @@ final class CallControllerNode: ViewControllerTracingNode, CallControllerNodePro
                 if case .active = callState.state {
                     statusReception = reception
                 }
+                
+                self.audioLevelDisposable.set((call.audioLevel
+                                               |> deliverOnMainQueue).start(next: { [weak self] audioLevel in
+                    guard let strongSelf = self else {
+                        return
+                    }
+                    strongSelf.avatarAudioLevel = audioLevel
+                }))
         }
         if self.shouldStayHiddenUntilConnection {
             switch callState.state {
@@ -1539,7 +1580,7 @@ final class CallControllerNode: ViewControllerTracingNode, CallControllerNodePro
         
         let toastSpacing: CGFloat = 22.0
         let toastCollapsedOriginY = self.pictureInPictureTransitionFraction > 0.0 ? layout.size.height : layout.size.height - max(layout.intrinsicInsets.bottom, 20.0) - toastHeight
-        let toastOriginY = interpolate(from: toastCollapsedOriginY, to: defaultButtonsOriginY - toastSpacing - toastHeight, value: uiDisplayTransition)
+        var toastOriginY = interpolate(from: toastCollapsedOriginY, to: defaultButtonsOriginY - toastSpacing - toastHeight, value: uiDisplayTransition)
         
         var overlayAlpha: CGFloat = min(pinchTransitionAlpha, uiDisplayTransition)
         var toastAlpha: CGFloat = min(pinchTransitionAlpha, pipTransitionAlpha)
@@ -1583,9 +1624,9 @@ final class CallControllerNode: ViewControllerTracingNode, CallControllerNodePro
         
         let backSize = self.backButtonNode.measure(CGSize(width: 320.0, height: 100.0))
         if let image = self.backButtonArrowNode.image {
-            transition.updateFrame(node: self.backButtonArrowNode, frame: CGRect(origin: CGPoint(x: 10.0, y: topOriginY + 11.0), size: image.size))
+            transition.updateFrame(node: self.backButtonArrowNode, frame: CGRect(origin: CGPoint(x: 10.0, y: topOriginY + 27.0), size: image.size))
         }
-        transition.updateFrame(node: self.backButtonNode, frame: CGRect(origin: CGPoint(x: 29.0, y: topOriginY + 11.0), size: backSize))
+        transition.updateFrame(node: self.backButtonNode, frame: CGRect(origin: CGPoint(x: 29.0, y: topOriginY + 27.0), size: backSize))
         
         transition.updateAlpha(node: self.backButtonArrowNode, alpha: overlayAlpha)
         transition.updateAlpha(node: self.backButtonNode, alpha: overlayAlpha)
@@ -1610,6 +1651,20 @@ final class CallControllerNode: ViewControllerTracingNode, CallControllerNodePro
         
         statusOffset += layout.safeInsets.top
         
+        let speakingAvatarSize = CGSize(width: 136.0, height: 136.0)
+        
+        if let avatarsContent = self.avatarsContent {
+            let accountContext = self.sharedContext.makeTempAccountContext(account: self.account)
+            let avatarsSize = self.avatarsNode.update(context: accountContext, content: avatarsContent, itemSize: speakingAvatarSize, animated: true, synchronousLoad: true)
+            
+            let avatarsOffset = topOriginY + 178.0
+            let statusOffsetOnTop = statusOffset
+            statusOffset = avatarsOffset + avatarsSize.height + 38.0
+            toastOriginY += statusOffset - statusOffsetOnTop - 4.0
+            transition.updateFrame(node: self.avatarsNode, frame: CGRect(origin: CGPoint(x: layout.size.width / 2.0 - speakingAvatarSize.width / 2.0, y: avatarsOffset), size: CGSize(width: speakingAvatarSize.width + 20.0, height: speakingAvatarSize.height + 20.0)))
+            // TODO - try sizes without 20.0 and avatarSize
+        }
+        
         let statusHeight = self.statusNode.updateLayout(constrainedWidth: layout.size.width, transition: transition)
         transition.updateFrame(node: self.statusNode, frame: CGRect(origin: CGPoint(x: 0.0, y: statusOffset), size: CGSize(width: layout.size.width, height: statusHeight)))
         transition.updateAlpha(node: self.statusNode, alpha: overlayAlpha)
@@ -1617,6 +1672,7 @@ final class CallControllerNode: ViewControllerTracingNode, CallControllerNodePro
         transition.updateFrame(node: self.toastNode, frame: CGRect(origin: CGPoint(x: 0.0, y: toastOriginY), size: CGSize(width: layout.size.width, height: toastHeight)))
         transition.updateFrame(node: self.buttonsNode, frame: CGRect(origin: CGPoint(x: 0.0, y: buttonsOriginY), size: CGSize(width: layout.size.width, height: buttonsHeight)))
         transition.updateAlpha(node: self.buttonsNode, alpha: overlayAlpha)
+        
         
         let fullscreenVideoFrame = containerFullScreenFrame
         let previewVideoFrame = self.calculatePreviewVideoRect(layout: layout, navigationHeight: navigationBarHeight)
@@ -1712,7 +1768,7 @@ final class CallControllerNode: ViewControllerTracingNode, CallControllerNodePro
         }
         
         let keyTextSize = self.keyButtonNode.frame.size
-        transition.updateFrame(node: self.keyButtonNode, frame: CGRect(origin: CGPoint(x: layout.size.width - keyTextSize.width - 8.0, y: topOriginY + 8.0), size: keyTextSize))
+        transition.updateFrame(node: self.keyButtonNode, frame: CGRect(origin: CGPoint(x: layout.size.width - keyTextSize.width - 8.0, y: topOriginY + 24.0), size: keyTextSize))
         transition.updateAlpha(node: self.keyButtonNode, alpha: overlayAlpha)
         
         if let debugNode = self.debugNode {
