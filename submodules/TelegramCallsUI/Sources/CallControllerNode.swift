@@ -19,6 +19,7 @@ import DeviceAccess
 import ContextUI
 import AvatarNode
 import AnimatedAvatarSetNode
+import GradientBackground
 
 private func interpolateFrame(from fromValue: CGRect, to toValue: CGRect, t: CGFloat) -> CGRect {
     return CGRect(x: floorToScreenPixels(toValue.origin.x * t + fromValue.origin.x * (1.0 - t)), y: floorToScreenPixels(toValue.origin.y * t + fromValue.origin.y * (1.0 - t)), width: floorToScreenPixels(toValue.size.width * t + fromValue.size.width * (1.0 - t)), height: floorToScreenPixels(toValue.size.height * t + fromValue.size.height * (1.0 - t)))
@@ -374,6 +375,8 @@ final class CallControllerNode: ViewControllerTracingNode, CallControllerNodePro
     
     private let imageNode: TransformImageNode
     private let dimNode: ASImageNode
+    
+    private var gradientBackgroundNode: GradientBackgroundNode?
     
     private let avatarsContext: AnimatedAvatarSetContext
     private var avatarsContent: AnimatedAvatarSetContext.Content?
@@ -1125,6 +1128,11 @@ final class CallControllerNode: ViewControllerTracingNode, CallControllerNodePro
                     text += "\n\(self.statusNode.subtitle)"
                 }
                 statusValue = .text(string: text, displayLogo: false)
+                self.updateGradient(colors: [UIColor(red: 0.322, green: 0.584, blue: 0.839, alpha: 1),
+                                             UIColor(red: 0.38, green: 0.416, blue: 0.835, alpha: 1),
+                                             UIColor(red: 0.675, green: 0.396, blue: 0.831, alpha: 1),
+                                             UIColor(red: 0.447, green: 0.38, blue: 0.855, alpha: 1)
+                                            ])
             case .active(let timestamp, let reception, let keyVisualHash), .reconnecting(let timestamp, let reception, let keyVisualHash):
                 let strings = self.presentationData.strings
                 var isReconnecting = false
@@ -1171,6 +1179,11 @@ final class CallControllerNode: ViewControllerTracingNode, CallControllerNodePro
                     }
                     strongSelf.avatarAudioLevel = audioLevel
                 }))
+                self.updateGradient(colors: [UIColor(red: 0.728, green: 0.754, blue: 0.365, alpha: 1),
+                                             UIColor(red: 0.235, green: 0.613, blue: 0.56, alpha: 1),
+                                             UIColor(red: 0.327, green: 0.65, blue: 0.871, alpha: 1),
+                                             UIColor(red: 0.224, green: 0.554, blue: 0.435, alpha: 1)
+                                            ])
         }
         if self.shouldStayHiddenUntilConnection {
             switch callState.state {
@@ -1278,6 +1291,18 @@ final class CallControllerNode: ViewControllerTracingNode, CallControllerNodePro
             }
         }
         self.statusNode.setVisible(visible || self.keyPreviewNode != nil, transition: transition)
+    }
+    
+    private func updateGradient(colors: [UIColor]) {
+        if self.gradientBackgroundNode == nil {
+            let gradientBackgroundNode = createGradientBackgroundNode(colors: colors, useSharedAnimationPhase: true)
+            self.gradientBackgroundNode = gradientBackgroundNode
+            self.containerNode.insertSubnode(gradientBackgroundNode, aboveSubnode: self.avatarsNode)
+        }
+        self.gradientBackgroundNode?.updateColors(colors: colors)
+        self.gradientBackgroundNode?.animateEvent(transition: .animated(duration: 0.5, curve: .spring), extendAnimation: true, backwards: false) {
+            
+        }
     }
     
     private func maybeScheduleUIHidingForActiveVideoCall() {
